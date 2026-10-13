@@ -27,9 +27,13 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Check Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          test -d "$ANDROID_HOME/platform-tools"
 
       - name: Build debug APK
         run: gradle assembleDebug
@@ -40,4 +44,5 @@ jobs:
           name: Bingwa-Bot-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          
           
