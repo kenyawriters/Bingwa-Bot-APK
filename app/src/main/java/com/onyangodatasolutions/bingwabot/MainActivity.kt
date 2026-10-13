@@ -1,37 +1,105 @@
+
 package com.onyangodatasolutions.bingwabot
 
+import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.graphics.Color
 import android.view.Gravity
 import android.view.ViewGroup
-import android.content.Context
 import android.widget.*
+
 import org.json.JSONArray
 import org.json.JSONObject
 
 class MainActivity : Activity() {
+
     private val green = Color.rgb(0, 130, 70)
+
     private val prefs by lazy {
         getSharedPreferences("bingwa_bot_data", Context.MODE_PRIVATE)
     }
+
     private lateinit var root: LinearLayout
 
     data class Field(val key: String, val label: String)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         showHome()
+        requestSmsPermissionsIfNeeded()
+    }
+
+    private fun requestSmsPermissionsIfNeeded() {
+        val permissions = arrayOf(
+            Manifest.permission.READ_SMS,
+            Manifest.permission.RECEIVE_SMS,
+            Manifest.permission.SEND_SMS
+        )
+
+        val missing = permissions.filter {
+            checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (missing.isNotEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("Bingwa Bot Permissions")
+                .setMessage(
+                    "Allow the required SMS permissions to enable " +
+                    "supported SMS features. You can continue using " +
+                    "the dashboard if you do not grant them."
+                )
+                .setPositiveButton("Continue") { _, _ ->
+                    requestPermissions(
+                        missing.toTypedArray(),
+                        SMS_PERMISSION_REQUEST
+                    )
+                }
+                .setNegativeButton("Later", null)
+                .show()
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(
+            requestCode, permissions, grantResults
+        )
+
+        if (requestCode == SMS_PERMISSION_REQUEST) {
+            val granted = permissions.indices.count { index ->
+                grantResults.getOrNull(index) ==
+                    PackageManager.PERMISSION_GRANTED
+            }
+
+            Toast.makeText(
+                this,
+                if (granted == permissions.size) {
+                    "Requested SMS permissions granted"
+                } else {
+                    "Some SMS permissions were not granted"
+                },
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun page(title: String, subtitle: String = "") {
         val scroll = ScrollView(this)
+
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 24, 24, 24)
             setBackgroundColor(Color.rgb(245, 248, 246))
         }
+
         scroll.addView(root)
         setContentView(scroll)
 
@@ -84,13 +152,43 @@ class MainActivity : Activity() {
 
     private fun showHome() {
         page("BINGWA BOT", "Safaricom Offers & Customer Management")
+
         text("Dashboard\nManage offers, clients, mappings and orders.")
+
         button("Available Offers") { showRecords("offers") }
         button("Client Management") { showRecords("clients") }
         button("Offer Mapping") { showRecords("mappings") }
         button("Order History") { showRecords("orders") }
         button("Settings") { showSettings() }
-        text("Version 1.1")
+        button("Check SMS Permissions") {
+            showPermissionStatus()
+        }
+
+        text("Version 1.2")
+    }
+
+    private fun showPermissionStatus() {
+        page("SMS Permissions", "Current permission status")
+
+        val permissions = listOf(
+            Manifest.permission.READ_SMS to "Read SMS",
+            Manifest.permission.RECEIVE_SMS to "Receive SMS",
+            Manifest.permission.SEND_SMS to "Send SMS"
+        )
+
+        permissions.forEach { (permission, label) ->
+            val granted =
+                checkSelfPermission(permission) ==
+                    PackageManager.PERMISSION_GRANTED
+
+            text("$label: ${if (granted) "Granted" else "Not granted"}")
+        }
+
+        button("Request Missing Permissions") {
+            requestSmsPermissionsIfNeeded()
+        }
+
+        button("Back to Dashboard") { showHome() }
     }
 
     private fun titleFor(type: String) = when (type) {
@@ -115,16 +213,19 @@ class MainActivity : Activity() {
             Field("code", "Offer code (optional)"),
             Field("repeatable", "Repeatable? Yes or No")
         )
+
         "clients" -> listOf(
             Field("name", "Customer name"),
             Field("phone", "Phone number"),
             Field("notes", "Notes (optional)")
         )
+
         "mappings" -> listOf(
             Field("name", "Offer name"),
             Field("instructions", "Purchase steps"),
             Field("code", "USSD/code (optional)")
         )
+
         else -> listOf(
             Field("client", "Customer name or phone"),
             Field("offer", "Offer purchased"),
@@ -136,12 +237,15 @@ class MainActivity : Activity() {
 
     private fun showRecords(type: String) {
         page(titleFor(type), "Records saved on this phone")
-        button("+ Add " + singular(type)) {
+
+        button("+ Add ${singular(type)}") {
             editRecord(type, null)
         }
+
         button("Back to Dashboard") { showHome() }
 
         val records = load(type)
+
         if (records.isEmpty()) {
             text("No records yet. Tap + Add to create one.")
             return
@@ -149,21 +253,25 @@ class MainActivity : Activity() {
 
         records.forEachIndexed { index, record ->
             val summary = when (type) {
-                "offers" -> "Offer: ${record["name"].orEmpty()}\n" +
+                "offers" ->
+                    "Offer: ${record["name"].orEmpty()}\n" +
                     "Price: KES ${record["price"].orEmpty()}\n" +
                     "Validity: ${record["validity"].orEmpty()}\n" +
                     "Repeatable: ${record["repeatable"].orEmpty()}\n" +
                     "Code: ${record["code"].orEmpty()}"
 
-                "clients" -> "Name: ${record["name"].orEmpty()}\n" +
+                "clients" ->
+                    "Name: ${record["name"].orEmpty()}\n" +
                     "Phone: ${record["phone"].orEmpty()}\n" +
                     "Notes: ${record["notes"].orEmpty()}"
 
-                "mappings" -> "Offer: ${record["name"].orEmpty()}\n" +
+                "mappings" ->
+                    "Offer: ${record["name"].orEmpty()}\n" +
                     "Steps: ${record["instructions"].orEmpty()}\n" +
                     "Code: ${record["code"].orEmpty()}"
 
-                else -> "Client: ${record["client"].orEmpty()}\n" +
+                else ->
+                    "Client: ${record["client"].orEmpty()}\n" +
                     "Offer: ${record["offer"].orEmpty()}\n" +
                     "Amount: KES ${record["amount"].orEmpty()}\n" +
                     "Status: ${record["status"].orEmpty()}\n" +
@@ -171,9 +279,11 @@ class MainActivity : Activity() {
             }
 
             text(summary)
+
             button("Edit record ${index + 1}") {
                 editRecord(type, index)
             }
+
             button("Delete record ${index + 1}") {
                 AlertDialog.Builder(this)
                     .setTitle("Delete record?")
@@ -181,19 +291,22 @@ class MainActivity : Activity() {
                     .setNegativeButton("Cancel", null)
                     .setPositiveButton("Delete") { _, _ ->
                         val updated = load(type)
+
                         if (index in updated.indices) {
                             updated.removeAt(index)
                             save(type, updated)
                             showRecords(type)
                             toast("Record deleted")
                         }
-                    }.show()
+                    }
+                    .show()
             }
         }
     }
 
     private fun editRecord(type: String, index: Int?) {
         val records = load(type)
+
         val old: Map<String, String> =
             if (index != null && index in records.indices) {
                 records[index]
@@ -205,32 +318,40 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 8, 24, 0)
         }
+
         val inputs = mutableMapOf<String, EditText>()
 
         fields(type).forEach { field ->
             val input = EditText(this).apply {
                 hint = field.label
                 setText(old[field.key].orEmpty())
+
                 setSingleLine(
                     field.key != "instructions" &&
                     field.key != "notes"
                 )
+
                 if (field.key == "price" || field.key == "amount") {
                     inputType =
                         android.text.InputType.TYPE_CLASS_NUMBER or
                         android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
                 }
+
                 if (field.key == "phone") {
                     inputType =
                         android.text.InputType.TYPE_CLASS_PHONE
                 }
             }
+
             form.addView(input)
             inputs[field.key] = input
         }
 
         val dialog = AlertDialog.Builder(this)
-            .setTitle((if (index == null) "Add " else "Edit ") + singular(type))
+            .setTitle(
+                (if (index == null) "Add " else "Edit ") +
+                    singular(type)
+            )
             .setView(ScrollView(this).apply { addView(form) })
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Save", null)
@@ -240,6 +361,7 @@ class MainActivity : Activity() {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)
                 .setOnClickListener {
                     val record = mutableMapOf<String, String>()
+
                     inputs.forEach { (key, input) ->
                         record[key] = input.text.toString().trim()
                     }
@@ -257,6 +379,7 @@ class MainActivity : Activity() {
                     }
 
                     val updated = load(type)
+
                     if (index == null) {
                         updated.add(record)
                     } else if (index in updated.indices) {
@@ -269,52 +392,87 @@ class MainActivity : Activity() {
                     toast("Saved successfully")
                 }
         }
+
         dialog.show()
     }
 
-    private fun load(type: String): MutableList<MutableMap<String, String>> {
+    private fun load(
+        type: String
+    ): MutableList<MutableMap<String, String>> {
         val result = mutableListOf<MutableMap<String, String>>()
+
         try {
-            val array = JSONArray(prefs.getString(type, "[]") ?: "[]")
+            val array = JSONArray(
+                prefs.getString(type, "[]") ?: "[]"
+            )
+
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
                 val record = mutableMapOf<String, String>()
                 val keys = obj.keys()
+
                 while (keys.hasNext()) {
                     val key = keys.next()
                     record[key] = obj.optString(key, "")
                 }
+
                 result.add(record)
             }
         } catch (_: Exception) {
-            // Start with an empty list if saved data cannot be read.
+            // Keep the dashboard usable if saved data is invalid.
         }
+
         return result
     }
 
-    private fun save(type: String, records: List<Map<String, String>>) {
+    private fun save(
+        type: String,
+        records: List<Map<String, String>>
+    ) {
         val array = JSONArray()
+
         records.forEach { record ->
             val obj = JSONObject()
+
             record.forEach { (key, value) ->
                 obj.put(key, value)
             }
+
             array.put(obj)
         }
+
         prefs.edit().putString(type, array.toString()).apply()
     }
 
     private fun showSettings() {
         page("Settings", "Local data overview")
+
         text("Offers: ${load("offers").size}")
         text("Clients: ${load("clients").size}")
         text("Mappings: ${load("mappings").size}")
         text("Orders: ${load("orders").size}")
-        text("Records are stored on this phone. Clearing app data or uninstalling may remove them.")
+
+        text(
+            "Records are stored on this phone. " +
+            "Clearing app data or uninstalling may remove them."
+        )
+
+        button("Check SMS Permissions") {
+            showPermissionStatus()
+        }
+
         button("Back to Dashboard") { showHome() }
     }
 
     private fun toast(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        Toast.makeText(
+            this,
+            message,
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    companion object {
+        private const val SMS_PERMISSION_REQUEST = 100
     }
 }
