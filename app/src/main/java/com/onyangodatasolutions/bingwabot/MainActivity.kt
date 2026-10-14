@@ -2,9 +2,10 @@ package com.onyangodatasolutions.bingwabot
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.os.Bundle
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -12,6 +13,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONArray
@@ -29,6 +31,7 @@ class MainActivity : Activity() {
     private val red = Color.rgb(190, 45, 45)
     private val white = Color.WHITE
     private val black = Color.rgb(30, 30, 30)
+    private val blue = Color.rgb(10, 120, 210)
 
     private val prefs by lazy {
         getSharedPreferences("bingwa_bot_data", MODE_PRIVATE)
@@ -36,6 +39,7 @@ class MainActivity : Activity() {
 
     private var currentPage = "Home"
     private var offerCategory = "All"
+    private var transactionFilter: String? = null
 
     private val menuItems = listOf(
         "Home", "Offers", "Client Management", "MPESA Messages",
@@ -95,6 +99,25 @@ class MainActivity : Activity() {
         )
     }
 
+    private fun setQueueMode(enabled: Boolean) {
+        prefs.edit().putBoolean("queue_mode", enabled).apply()
+    }
+
+    private fun isQueueModeEnabled(): Boolean =
+        prefs.getBoolean("queue_mode", false)
+
+    private fun processQueuedMessagesIfAvailable(enabled: Boolean) {
+        if (enabled) {
+            val queuedCount = readList("messages").size
+            toast(
+                "Queue mode ON: UI state updated. No live SMS/USSD queue backend is connected yet. " +
+                    "${queuedCount} saved message record(s) are ready for integration."
+            )
+        } else {
+            toast("Queue mode OFF: incoming messages stay queued for later processing.")
+        }
+    }
+
     private fun showPage(page: String) {
         currentPage = page
         val root = LinearLayout(this).apply {
@@ -112,7 +135,8 @@ class MainActivity : Activity() {
             showNavigation()
         })
 
-        val heading = makeText("BINGWA BOT", 20f, green, true)
+        val headingLabel = if (page == "Home") "Dashboard" else page
+        val heading = makeText(headingLabel, 20f, green, true)
         heading.gravity = Gravity.CENTER
         header.addView(
             heading,
@@ -121,9 +145,32 @@ class MainActivity : Activity() {
             )
         )
 
+        if (page == "Home") {
+            val avatar = TextView(this).apply {
+                val businessName = prefs.getString("business_name", "Onyango Data Solutions")
+                    ?: "Onyango Data Solutions"
+                val initials = businessName.split(" ")
+                    .mapNotNull { it.firstOrNull()?.uppercaseChar() }
+                    .joinToString("")
+                text = if (initials.isNotBlank()) initials.take(2) else "O"
+                setTextColor(white)
+                textSize = 14f
+                gravity = Gravity.CENTER
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                val bg = GradientDrawable().apply {
+                    setColor(darkGreen)
+                    cornerRadius = dp(20).toFloat()
+                }
+                background = bg
+            }
+            header.addView(avatar)
+        }
+
         root.addView(header)
         addLine(root)
-        root.addView(makeText(page, 22f, darkGreen, true))
+        if (page != "Home") {
+            root.addView(makeText(page, 22f, darkGreen, true))
+        }
 
         val scroll = ScrollView(this)
         val body = LinearLayout(this).apply {
@@ -163,18 +210,306 @@ class MainActivity : Activity() {
             .show()
     }
 
+    private fun greetingText(): String {
+        val hour = SimpleDateFormat("H", Locale.getDefault()).format(Date()).toIntOrNull() ?: 0
+        return when (hour) {
+            in 0..11 -> "Good Morning"
+            in 12..16 -> "Good Afternoon"
+            in 17..20 -> "Good Evening"
+            else -> "Good Night"
+        }
+    }
+
+    private fun maskPhone(value: String): String {
+        val digits = value.filter { it.isDigit() }
+        return if (digits.length <= 4) {
+            value.ifBlank { "No phone" }
+        } else {
+            "***${digits.takeLast(4)}"
+        }
+    }
+
     private fun buildHome(body: LinearLayout) {
-        val offers = readList("offers")
-        body.addView(makeText("Welcome to Bingwa Bot", 19f, black, true))
-        body.addView(makeText("Manage offers, customers and transactions."))
-        addGap(body, 10)
-        body.addView(makeText("Total saved offers: ${offers.size}", 17f, black, true))
-        body.addView(makeText(
-            "Active offers now: ${offers.count { isOfferActive(it) }}",
-            17f, green, true
-        ))
+        val queueEnabled = isQueueModeEnabled()
+        val queueCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = GradientDrawable().apply {
+                setColor(white)
+                cornerRadius = dp(14).toFloat()
+            }
+        }
+
+        val queueRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        queueRow.addView(makeText("Queue Mode", 16f, black, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+
+        val queueSwitch = Switch(this).apply {
+            isChecked = queueEnabled
+            setOnCheckedChangeListener { _, isChecked ->
+                setQueueMode(isChecked)
+                processQueuedMessagesIfAvailable(isChecked)
+                showPage("Home")
+            }
+        }
+        queueRow.addView(queueSwitch)
+        queueCard.addView(queueRow)
+
+        if (queueEnabled) {
+            queueCard.addView(makeText("ON • Blue", 13f, blue, true))
+            queueCard.addView(makeText("LIVE - Processing", 13f, blue, true))
+        } else {
+            queueCard.addView(makeText("OFF • Green", 13f, green, true))
+            queueCard.addView(makeText("App Paused - Queuing messages", 13f, green, true))
+        }
+        body.addView(queueCard)
         addGap(body, 10)
 
+        val profileCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#E8F5E9"))
+                cornerRadius = dp(14).toFloat()
+            }
+        }
+
+        val profileRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val businessName = prefs.getString("business_name", "Onyango Data Solutions") ?: "Onyango Data Solutions"
+        val initials = businessName.split(" ")
+            .mapNotNull { it.firstOrNull()?.uppercaseChar() }
+            .joinToString("")
+
+        val avatarView = TextView(this).apply {
+            text = if (initials.isNotBlank()) initials.take(2) else "O"
+            setTextColor(darkGreen)
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = GradientDrawable().apply {
+                setColor(white)
+                cornerRadius = dp(28).toFloat()
+            }
+        }
+        profileRow.addView(avatarView)
+
+        val accountInfo = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        accountInfo.addView(makeText(businessName, 17f, darkGreen, true))
+        accountInfo.addView(makeText("Bingwa Bot", 14f, grey))
+        profileRow.addView(
+            accountInfo,
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+
+        val statusBadge = TextView(this).apply {
+            text = if (queueEnabled) "LIVE" else "PAUSED"
+            setTextColor(white)
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            background = GradientDrawable().apply {
+                setColor(if (queueEnabled) blue else green)
+                cornerRadius = dp(8).toFloat()
+            }
+        }
+        profileRow.addView(statusBadge)
+        profileCard.addView(profileRow)
+        profileCard.addView(makeText(greetingText(), 13f, black))
+        addGap(profileCard, 8)
+
+        val balancePairs = listOf(
+            Triple("Airtime Balance", "balance_airtime", "show_airtime"),
+            Triple("Bonga Points", "balance_bonga", "show_bonga"),
+            Triple("Tokens", "balance_tokens", "show_tokens"),
+            Triple("Commission", "balance_commission", "show_commission")
+        )
+
+        for (index in balancePairs.indices step 2) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+            for (offset in 0..1) {
+                val pairIndex = index + offset
+                if (pairIndex >= balancePairs.size) break
+                val (label, key, visibleKey) = balancePairs[pairIndex]
+                val hidden = !prefs.getBoolean(visibleKey, true)
+                val rawValue = prefs.getString(key, "") ?: ""
+                val displayValue = when {
+                    rawValue.isBlank() -> "Not connected"
+                    hidden -> "••••"
+                    else -> rawValue
+                }
+
+                val item = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(10), dp(8), dp(10), dp(8))
+                    background = GradientDrawable().apply {
+                        setColor(white)
+                        cornerRadius = dp(10).toFloat()
+                    }
+                }
+
+                val textBlock = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                }
+                textBlock.addView(makeText(label, 12f, grey))
+                textBlock.addView(makeText(displayValue, 15f, black, true))
+                item.addView(
+                    textBlock,
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                )
+
+                val eye = Button(this).apply {
+                    text = if (hidden) "🙈" else "👁"
+                    setBackgroundColor(Color.TRANSPARENT)
+                    setOnClickListener {
+                        prefs.edit().putBoolean(visibleKey, !hidden).apply()
+                        showPage("Home")
+                    }
+                }
+                item.addView(eye)
+
+                row.addView(
+                    item,
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        rightMargin = dp(8)
+                    }
+                )
+            }
+            profileCard.addView(row)
+            addGap(profileCard, 6)
+        }
+        body.addView(profileCard)
+        addGap(body, 10)
+
+        val filterRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
+        fun filterButton(label: String, status: String, color: Int): Button {
+            val selected = transactionFilter == status
+            return Button(this).apply {
+                text = label
+                setTextColor(if (selected) white else color)
+                setBackgroundColor(if (selected) color else white)
+                isAllCaps = false
+                setOnClickListener {
+                    transactionFilter = if (transactionFilter == status) null else status
+                    showPage("Home")
+                }
+            }
+        }
+
+        filterRow.addView(filterButton("Done", "done", Color.parseColor("#0B7D2E")), LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(6) })
+        filterRow.addView(filterButton("Failed", "failed", Color.parseColor("#EF4444")), LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(6) })
+        filterRow.addView(filterButton("Pending", "pending", Color.parseColor("#F97316")), LinearLayout.LayoutParams(0, dp(42), 1f))
+        body.addView(filterRow)
+        addGap(body, 8)
+
+        val recentHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        recentHeader.addView(makeText("Recent Transactions", 16f, darkGreen, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        recentHeader.addView(Button(this).apply {
+            text = "See all"
+            setBackgroundColor(Color.TRANSPARENT)
+            setTextColor(darkGreen)
+            isAllCaps = false
+            setOnClickListener { showPage("Order History") }
+        })
+        body.addView(recentHeader)
+        addGap(body, 6)
+
+        val allOrders = readList("orders")
+        val orders = if (transactionFilter == null) {
+            allOrders
+        } else {
+            allOrders.filter { it.optString("status", "pending").lowercase(Locale.ROOT) == transactionFilter }
+        }
+
+        if (orders.isEmpty()) {
+            body.addView(makeText("No transactions yet", 14f, grey))
+        } else {
+            orders.forEach { order ->
+                val card = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(10), dp(8), dp(10), dp(8))
+                    background = GradientDrawable().apply {
+                        setColor(white)
+                        cornerRadius = dp(10).toFloat()
+                    }
+                }
+
+                val customerName = order.optString("customerName", order.optString("name", "Unnamed customer"))
+                val phone = order.optString("phone", order.optString("msisdn", ""))
+                val amount = order.optString("amount", order.optString("price", "0"))
+                val packageName = order.optString("package", order.optString("offer", "Offer"))
+                val status = order.optString("status", "pending").lowercase(Locale.ROOT)
+
+                val initials = customerName.split(" ")
+                    .mapNotNull { it.firstOrNull()?.uppercaseChar() }
+                    .joinToString("")
+                val avatarBadge = TextView(this).apply {
+                    text = if (initials.isNotBlank()) initials.take(2) else "U"
+                    setTextColor(white)
+                    gravity = Gravity.CENTER
+                    setPadding(dp(10), dp(8), dp(10), dp(8))
+                    background = GradientDrawable().apply {
+                        setColor(darkGreen)
+                        cornerRadius = dp(18).toFloat()
+                    }
+                }
+                card.addView(avatarBadge)
+
+                val info = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                }
+                info.addView(makeText(customerName, 14f, black, true))
+                info.addView(makeText(maskPhone(phone) + " • $packageName", 12f, grey))
+                card.addView(
+                    info,
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(8) }
+                )
+
+                val right = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.END
+                }
+                right.addView(makeText("KSh $amount", 13f, black, true))
+                val badgeColor = when (status) {
+                    "done", "success" -> Color.parseColor("#0B7D2E")
+                    "failed", "error" -> Color.parseColor("#EF4444")
+                    else -> Color.parseColor("#F97316")
+                }
+                val badgeText = status.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
+                right.addView(TextView(this).apply {
+                    text = badgeText
+                    setTextColor(white)
+                    setPadding(dp(8), dp(4), dp(8), dp(4))
+                    background = GradientDrawable().apply {
+                        setColor(badgeColor)
+                        cornerRadius = dp(8).toFloat()
+                    }
+                })
+                card.addView(right)
+                body.addView(card)
+                addGap(body, 7)
+            }
+        }
+
+        addGap(body, 6)
+        body.addView(makeText("Quick links", 16f, black, true))
+        addGap(body, 6)
         menuItems.filter { it != "Home" }.forEach { page ->
             body.addView(makeButton(page) { showPage(page) })
             addGap(body, 4)
@@ -491,7 +826,7 @@ class MainActivity : Activity() {
     // TRAINING CONTROLS
 
     private fun trainingKey(offer: JSONObject) =
-        "training_steps_${offer.optString("id")}" 
+        "training_steps_${offer.optString("id")}"
 
     private fun showTrainingMenu(offer: JSONObject) {
         val options = arrayOf(
