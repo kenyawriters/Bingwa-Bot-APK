@@ -520,8 +520,15 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun enterTrainingSteps(offer: JSONObject, retrain: Boolean) {
-        val previous = prefs.getString(trainingKey(offer), "") ?: ""
+    val previous = runCatching {
+    val saved = JSONObject(
+        prefs.getString(trainingKey(offer), "") ?: ""
+    )
+    val steps = saved.optJSONArray("steps") ?: JSONArray()
+    (0 until steps.length()).joinToString("\n") {
+        steps.optString(it)
+    }
+}.getOrDefault("")
         val input = EditText(this).apply {
             minLines = 5
             gravity = Gravity.TOP
