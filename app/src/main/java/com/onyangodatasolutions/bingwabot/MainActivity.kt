@@ -550,4 +550,336 @@ class MainActivity : Activity() {
                         put("savedAt", System.currentTimeMillis())
                         put("skipFinalOption", true)
                         put("trainingNumber",
+                            prefs.getString("training_number", "0704279192"))
+                    }
+
+                    prefs.edit()
+                        .putString(trainingKey(offer), saved.toString())
+                        .apply()
+
+                    toast("Training steps saved. The final option is marked to be skipped.")
+                }
+            }
+            .show()
+    }
+
+    private fun showSavedSteps(offer: JSONObject) {
+        val raw = prefs.getString(trainingKey(offer), "") ?: ""
+
+        if (raw.isBlank()) {
+            toast("No saved training steps")
+            return
+        }
+
+        val message = runCatching {
+            val saved = JSONObject(raw)
+            val steps = saved.optJSONArray("steps") ?: JSONArray()
+
+            buildString {
+                for (i in 0 until steps.length()) {
+                    append(i + 1)
+                    append(". ")
+                    append(steps.optString(i))
+                    append("\n")
+                }
+
+                append("\nFinal menu option: skipped")
+                append("\nTraining number: ")
+                append(saved.optString("trainingNumber", "0704279192"))
+            }
+        }.getOrDefault(raw)
+
+        AlertDialog.Builder(this)
+            .setTitle("Saved training steps")
+            .setMessage(message)
+            .setPositiveButton("Close", null)
+            .show()
+    }
+
+    private fun editTrainingNumber() {
+        val input = EditText(this).apply {
+            singleLine = true
+            hint = "0704279192"
+            setText(prefs.getString("training_number", "0704279192"))
+            inputType = android.text.InputType.TYPE_CLASS_PHONE
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Training number")
+            .setMessage("Enter the phone number used for training.")
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save") { _, _ ->
+                val number = input.text.toString().trim()
+
+                if (number.isBlank()) {
+                    toast("Enter a phone number")
+                } else {
+                    prefs.edit()
+                        .putString("training_number", number)
+                        .apply()
+                    toast("Training number saved")
+                }
+            }
+            .show()
+    }
+
+    // GENERAL RECORDS
+
+    private fun buildRecords(body: LinearLayout, key: String) {
+        val title = when (key) {
+            "clients" -> "Client Management"
+            "messages" -> "M-PESA Messages"
+            "quickdial" -> "Quick Dial"
+            "autoreply" -> "Auto Reply"
+            "mappings" -> "Offer Mapping"
+            "orders" -> "Order History"
+            else -> "Records"
+        }
+
+        val records = readList(key)
+
+        body.addView(makeText("Saved records: ${records.size}", 16f, black, true))
+        addGap(body)
+
+        body.addView(makeButton("+ Add $title") {
+            editRecord(key, null, title)
+        })
+
+        addGap(body, 10)
+
+        if (records.isEmpty()) {
+            body.addView(makeText("No records saved yet.", 14f, grey))
+        }
+
+        records.forEach { record ->
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                setBackgroundColor(white)
+            }
+
+            card.addView(makeText(
+                record.optString("name", "Unnamed record"),
+                16f, black, true
+            ))
+
+            val details = record.optString("details", "")
+            if (details.isNotBlank()) {
+                card.addView(makeText(details, 14f, grey))
+            }
+
+            val actions = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+
+            actions.addView(makeButton("Edit", darkGreen) {
+                editRecord(key, record, title)
+            }, LinearLayout.LayoutParams(0, dp(48), 1f))
+
+            actions.addView(makeButton("Delete", red) {
+                AlertDialog.Builder(this)
+                    .setTitle("Delete record?")
+                    .setMessage(record.optString("name"))
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Delete") { _, _ ->
+                        deleteRecord(key, record.optString("id"))
+                        showPage(currentPage)
+                    }
+                    .show()
+            }, LinearLayout.LayoutParams(0, dp(48), 1f))
+
+            card.addView(actions)
+            body.addView(card)
+            addGap(body, 8)
+        }
+    }
+
+    private fun editRecord(
+        key: String,
+        existing: JSONObject?,
+        title: String
+    ) {
+        val isNew = existing == null
+
+        val record = existing ?: JSONObject().apply {
+            put("id", System.currentTimeMillis().toString())
+            put("name", "")
+            put("details", "")
+        }
+
+        val nameInput = EditText(this).apply {
+            singleLine = true
+            hint = "Name"
+            setText(record.optString("name", ""))
+        }
+
+        val detailsInput = EditText(this).apply {
+            minLines = 3
+            gravity = Gravity.TOP
+            hint = "Details, phone number, message or notes"
+            setText(record.optString("details", ""))
+        }
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+            addView(makeText("Name", 13f, darkGreen, true))
+            addView(nameInput)
+            addView(makeText("Details", 13f, darkGreen, true))
+            addView(detailsInput)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(if (isNew) "Add $title" else "Edit $title")
+            .setView(layout)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save", null)
+            .create()
+            .apply {
+                setOnShowListener {
+                    getButton(AlertDialog.BUTTON_POSITIVE)
+                        .setOnClickListener {
+                            val name = nameInput.text.toString().trim()
+
+                            if (name.isBlank()) {
+                                toast("Enter a name")
+                                return@setOnClickListener
+                            }
+
+                            record.put("name", name)
+                            record.put(
+                                "details",
+                                detailsInput.text.toString().trim()
+                            )
+
+                            upsertRecord(key, record)
+                            dismiss()
+                            showPage(currentPage)
+                            toast("Record saved")
+                        }
+                }
+                show()
+            }
+    }
+
+    private fun buildStatistics(body: LinearLayout) {
+        val offers = readList("offers")
+        val clients = readList("clients")
+        val messages = readList("messages")
+        val orders = readList("orders")
+
+        body.addView(makeText("Bingwa Bot Statistics", 19f, darkGreen, true))
+        addGap(body)
+
+        body.addView(makeText("Total offers: ${offers.size}", 16f, black, true))
+        body.addView(makeText(
+            "Active offers now: ${offers.count { isOfferActive(it) }}",
+            16f, green, true
+        ))
+        body.addView(makeText("Saved clients: ${clients.size}", 16f))
+        body.addView(makeText("Saved M-PESA messages: ${messages.size}", 16f))
+        body.addView(makeText("Saved orders: ${orders.size}", 16f))
+
+        addGap(body, 12)
+
+        body.addView(makeText(
+            "Statistics count records saved in this app. " +
+                "Automatic transaction processing is not yet connected.",
+            13f, grey
+        ))
+    }
+
+    private fun buildSettings(body: LinearLayout) {
+        body.addView(makeText("Settings", 19f, darkGreen, true))
+        addGap(body)
+
+        body.addView(makeText(
+            "Training number: " +
+                prefs.getString("training_number", "0704279192"),
+            16f, black, true
+        ))
+
+        body.addView(makeButton("Change Training Number") {
+            editTrainingNumber()
+        })
+
+        addGap(body, 10)
+
+        body.addView(makeButton("Clear All App Records", red) {
+            AlertDialog.Builder(this)
+                .setTitle("Clear all records?")
+                .setMessage(
+                    "This deletes saved offers, clients, messages, " +
+                        "orders, mappings and training data."
+                )
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Clear") { _, _ ->
+                    prefs.edit().clear().apply()
+                    toast("App records cleared")
+                    showPage("Settings")
+                }
+                .show()
+        })
+
+        addGap(body, 10)
+
+        body.addView(makeText(
+            "This app currently stores data locally on this device.",
+            13f, grey
+        ))
+    }
+
+    // LOCAL STORAGE HELPERS
+
+    private fun readList(key: String): MutableList<JSONObject> {
+        val raw = prefs.getString(key, "[]") ?: "[]"
+
+        return try {
+            val array = JSONArray(raw)
+            MutableList(array.length()) { index ->
+                array.getJSONObject(index)
+            }
+        } catch (_: Exception) {
+            mutableListOf()
+        }
+    }
+
+    private fun saveList(key: String, records: List<JSONObject>) {
+        val array = JSONArray()
+        records.forEach { array.put(it) }
+
+        prefs.edit()
+            .putString(key, array.toString())
+            .apply()
+    }
+
+    private fun upsertRecord(key: String, record: JSONObject) {
+        val records = readList(key)
+        val id = record.optString("id")
+
+        val index = records.indexOfFirst {
+            it.optString("id") == id
+        }
+
+        if (index >= 0) {
+            records[index] = record
+        } else {
+            records.add(record)
+        }
+
+        saveList(key, records)
+    }
+
+    private fun deleteRecord(key: String, id: String) {
+        val records = readList(key)
+        records.removeAll { it.optString("id") == id }
+        saveList(key, records)
+    }
+
+    private fun toast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+}
+
                          
