@@ -1,4 +1,3 @@
-
 package com.onyangodatasolutions.bingwabot
 
 import android.app.Activity
@@ -492,7 +491,7 @@ class MainActivity : Activity() {
     // TRAINING CONTROLS
 
     private fun trainingKey(offer: JSONObject) =
-        "training_steps_${offer.optString("id")}"
+        "training_steps_${offer.optString("id")}" 
 
     private fun showTrainingMenu(offer: JSONObject) {
         val options = arrayOf(
@@ -520,7 +519,6 @@ class MainActivity : Activity() {
             .show()
     }
 
-    val previous = 
     private fun enterTrainingSteps(offer: JSONObject, retrain: Boolean) {
         val previous = runCatching {
             val saved = JSONObject(
@@ -532,15 +530,6 @@ class MainActivity : Activity() {
             }
         }.getOrDefault("")
 
-        
-    val saved = JSONObject(
-        prefs.getString(trainingKey(offer), "") ?: ""
-    )
-    val steps = saved.optJSONArray("steps") ?: JSONArray()
-    (0 until steps.length()).joinToString("\n") {
-        steps.optString(it)
-    }
-}.getOrDefault("")
         val input = EditText(this).apply {
             minLines = 5
             gravity = Gravity.TOP
@@ -900,5 +889,3 @@ class MainActivity : Activity() {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 }
-
-                         
