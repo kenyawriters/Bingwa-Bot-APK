@@ -392,7 +392,7 @@ class MainActivity : Activity() {
                 else -> record.optString(key, "")
             }
             val input = EditText(this).apply {
-                singleLine = true
+                isSingleLine = true
                 textSize = 15f
                 setText(value)
                 hint = label
@@ -606,7 +606,7 @@ class MainActivity : Activity() {
 
     private fun editTrainingNumber() {
         val input = EditText(this).apply {
-            singleLine = true
+            isSingleLine = true
             hint = "0704279192"
             setText(prefs.getString("training_number", "0704279192"))
             inputType = android.text.InputType.TYPE_CLASS_PHONE
@@ -717,7 +717,7 @@ class MainActivity : Activity() {
         }
 
         val nameInput = EditText(this).apply {
-            singleLine = true
+            isSingleLine = true
             hint = "Name"
             setText(record.optString("name", ""))
         }
